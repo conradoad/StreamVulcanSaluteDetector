@@ -12,13 +12,15 @@ from datetime import datetime
 import time
 
 
-DEBUG = True
-RUN_MODE = True
+RUN_MODE = True         # False - print hand landmarks only | 1-execute final functions
+OUTPUT_MODE = 0         # 0-imshow | 1-pyvirtualcam
+SEGMENTER_MODEL = 1     # 0-selfie_segmenter | 1-selfie_segmenter_landscape | 2-multiclass_selfie_segmenter
+DEBUG = False
 
 ENTERPRISE_SCENE = False
 ENTERPRISE_SCENE_LAST_CHANGED = None
 
-CAMERA_IDX = 0
+CAMERA_IDX = 1
 
 FRAME_WIDTH = 1080
 FRAME_HEIGHT = 720
@@ -41,12 +43,20 @@ FONT_SIZE = 1
 FONT_THICKNESS = 2
 HANDEDNESS_TEXT_COLOR = (88, 205, 54) # vibrant green
 
-hand_landmark_model_path = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\hand_landmarker.task'
-selfie_segmenter_model_path = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\selfie_segmenter.tflite'
-selfie_segmenter_landscape_model_path = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\selfie_segmenter_landscape.tflite'
-multiclass_selfie_segmenter_model_path = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\selfie_multiclass_256x256.tflite'
-bg_image_path_vulcan = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\start_trek_images\\background2.jpg'
-bg_image_path_default = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\start_trek_images\\Oficinas.jpg'
+hand_landmark_model_path = './models/hand_landmarker.task'
+selfie_segmenter_model_path = './models/selfie_segmenter.tflite'
+selfie_segmenter_landscape_model_path = './models/selfie_segmenter_landscape.tflite'
+multiclass_selfie_segmenter_model_path = './models/selfie_multiclass_256x256.tflite'
+bg_image_path_vulcan = './background_images/background2.jpg'
+bg_image_path_default = './background_images/Oficinas.jpg'
+
+# hand_landmark_model_path = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\models\\hand_landmarker.task'
+# selfie_segmenter_model_path = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\models\\selfie_segmenter.tflite'
+# selfie_segmenter_landscape_model_path = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\models\\selfie_segmenter_landscape.tflite'
+# multiclass_selfie_segmenter_model_path = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\models\\selfie_multiclass_256x256.tflite'
+# bg_image_path_vulcan = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\background_images\\background2.jpg'
+# bg_image_path_default = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\background_images\\Oficinas.jpg'
+
 
 BaseOptions = mp.tasks.BaseOptions
 HandLandmarker = mp.tasks.vision.HandLandmarker
@@ -101,7 +111,6 @@ def is_vulcan_greeting(result):
 
 def draw_landmarks_on_image(rgb_image, detection_result, is_vulcan_greeting):
   hand_landmarks_list = detection_result.hand_landmarks
-  handedness_list = detection_result.handedness
   annotated_image = np.copy(rgb_image)
 
   # Loop through the detected hands to visualize.
@@ -169,35 +178,44 @@ def get_background_image(image_path):
     
     return new_bg_frame
 
+def resize_foreground(condition : np.ndarray, frame : np.ndarray, factor : float, offset : (float, float)):
+    full_size_shape = condition.shape
+    resized_shape = (int(full_size_shape[0]*factor), int(full_size_shape[1]*factor), full_size_shape[2])
+    offset = (int(full_size_shape[0]*offset[0]), int(full_size_shape[1]*offset[1]))
+        
+    condition_int = condition.astype(dtype='uint8')
+    resized_condition_int = cv.resize(condition_int, (resized_shape[1], resized_shape[0]), interpolation = cv.INTER_CUBIC)
+    new_condition = np.full(full_size_shape, False, dtype='bool')
+    new_condition[offset[0]:offset[0]+resized_shape[0], offset[1]:offset[1]+resized_shape[1]] = resized_condition_int.astype(dtype='bool')
+    
+    new_frame = np.full(full_size_shape, 0, dtype='uint8')
+    resized_frame = cv.resize(frame, (resized_shape[1], resized_shape[0]), interpolation = cv.INTER_CUBIC)
+    new_frame[offset[0]:offset[0]+resized_shape[0], offset[1]:offset[1]+resized_shape[1]] = resized_frame
+    
+    return new_condition, new_frame
+
 running_mode = VisionRunningMode.LIVE_STREAM if RUN_MODE else VisionRunningMode.VIDEO
 landmarker_options = HandLandmarkerOptions(
     base_options=BaseOptions(model_asset_path=hand_landmark_model_path),
     running_mode=running_mode,
-    # min_hand_detection_confidence=0.2,
-    # min_hand_presence_confidence=0.2,
-    # min_tracking_confidence=0.3,
     num_hands = 2,
     result_callback = hand_detected_handle if RUN_MODE else None
     )
 landmarker = HandLandmarker.create_from_options(landmarker_options)
 
-# segmenter_options = ImageSegmenterOptions(
-#     base_options=BaseOptions(selfie_segmenter_model_path),
-#     running_mode=VisionRunningMode.VIDEO,
-#     output_category_mask=True)
-# segmenter = ImageSegmenter.create_from_options(segmenter_options)
+if SEGMENTER_MODEL == 0:
+    segmenter_model_path = selfie_segmenter_model_path
+elif SEGMENTER_MODEL == 1:
+    segmenter_model_path = selfie_segmenter_landscape_model_path
+elif SEGMENTER_MODEL == 2:
+    segmenter_model_path = multiclass_selfie_segmenter_model_path
 
 segmenter_options = ImageSegmenterOptions(
-    base_options=BaseOptions(selfie_segmenter_landscape_model_path),
+    base_options=BaseOptions(segmenter_model_path),
     running_mode=VisionRunningMode.VIDEO,
     output_category_mask=True)
 segmenter = ImageSegmenter.create_from_options(segmenter_options)
 
-# segmenter_options = ImageSegmenterOptions(
-#     base_options=BaseOptions(multiclass_selfie_segmenter_model_path),
-#     running_mode=VisionRunningMode.VIDEO,
-#     output_category_mask=True)
-# segmenter = ImageSegmenter.create_from_options(segmenter_options)
 
 cap = cv.VideoCapture(CAMERA_IDX)
 if not cap.isOpened():
@@ -242,11 +260,18 @@ while True:
         segmented_masks = segmenter.segment_for_video(mp_image, frame_timestamp_ms)
         category_mask = segmented_masks.category_mask.numpy_view()
         confidence_masks = segmented_masks.confidence_masks[0].numpy_view()
-        condition = np.stack((confidence_masks,) * 3, axis=-1) > 0.3
+        
+        if SEGMENTER_MODEL <= 1:
+            condition = np.stack((confidence_masks,) * 3, axis=-1) > 0.3
+        else:
+            condition = np.stack((confidence_masks,) * 3, axis=-1) < 0.3
+        
+        if ENTERPRISE_SCENE:
+            condition, frame = resize_foreground(condition, frame, 0.5, (0.273, 0.33))
+        
         output_image = np.where(condition, frame, bg_image)
-        # output_image = np.where(condition, bg_image, frame)
 
-        if DEBUG:
+        if OUTPUT_MODE == 0:
             cv.imshow("teste", output_image)
             if cv.waitKey(1) == ord('q'):
                 break
