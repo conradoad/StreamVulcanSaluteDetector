@@ -18,8 +18,10 @@ RUN_MODE = True
 ENTERPRISE_SCENE = False
 ENTERPRISE_SCENE_LAST_CHANGED = None
 
-FRAME_WIDTH = 640
-FRAME_HEIGHT = 480
+CAMERA_IDX = 0
+
+FRAME_WIDTH = 1080
+FRAME_HEIGHT = 720
 
 MIN_TIME_TO_CHANGE_SEC = 5
 
@@ -39,11 +41,12 @@ FONT_SIZE = 1
 FONT_THICKNESS = 2
 HANDEDNESS_TEXT_COLOR = (88, 205, 54) # vibrant green
 
-hand_landmark_model_path = '/home/conrado/MediaPipeTests/hand_landmarker.task'
-selfie_segmenter_model_path = '/home/conrado/MediaPipeTests/selfie_segmenter.tflite'
-selfie_segmenter_landscape_model_path = '/home/conrado/MediaPipeTests/selfie_segmenter_landscape.tflite'
-multiclass_selfie_segmenter_model_path = '/home/conrado/MediaPipeTests/selfie_multiclass_256x256.tflite'
-bg_image_path = '/home/conrado/MediaPipeTests/start_trek_images/background2.jpg'
+hand_landmark_model_path = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\hand_landmarker.task'
+selfie_segmenter_model_path = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\selfie_segmenter.tflite'
+selfie_segmenter_landscape_model_path = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\selfie_segmenter_landscape.tflite'
+multiclass_selfie_segmenter_model_path = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\selfie_multiclass_256x256.tflite'
+bg_image_path_vulcan = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\start_trek_images\\background2.jpg'
+bg_image_path_default = 'C:\\Users\\423458\\StreamVulcanSaluteDetector\\start_trek_images\\Oficinas.jpg'
 
 BaseOptions = mp.tasks.BaseOptions
 HandLandmarker = mp.tasks.vision.HandLandmarker
@@ -141,8 +144,8 @@ def hand_detected_handle(result: HandLandmarkerResult, output_image: mp.Image, t
             ENTERPRISE_SCENE = not ENTERPRISE_SCENE
             print('Activating Enterprise Scene') if ENTERPRISE_SCENE else print('Deactivating Enterprise Scene')
 
-def get_background_frame():
-    origin_bg_frame = cv.imread(bg_image_path)
+def get_background_image(image_path):
+    origin_bg_frame = cv.imread(image_path)
     origin_height = origin_bg_frame.shape[0]
     origin_width = origin_bg_frame.shape[1]
     
@@ -184,19 +187,19 @@ landmarker = HandLandmarker.create_from_options(landmarker_options)
 #     output_category_mask=True)
 # segmenter = ImageSegmenter.create_from_options(segmenter_options)
 
-# segmenter_options = ImageSegmenterOptions(
-#     base_options=BaseOptions(selfie_segmenter_landscape_model_path),
-#     running_mode=VisionRunningMode.VIDEO,
-#     output_category_mask=True)
-# segmenter = ImageSegmenter.create_from_options(segmenter_options)
-
 segmenter_options = ImageSegmenterOptions(
-    base_options=BaseOptions(multiclass_selfie_segmenter_model_path),
+    base_options=BaseOptions(selfie_segmenter_landscape_model_path),
     running_mode=VisionRunningMode.VIDEO,
     output_category_mask=True)
 segmenter = ImageSegmenter.create_from_options(segmenter_options)
 
-cap = cv.VideoCapture(1)
+# segmenter_options = ImageSegmenterOptions(
+#     base_options=BaseOptions(multiclass_selfie_segmenter_model_path),
+#     running_mode=VisionRunningMode.VIDEO,
+#     output_category_mask=True)
+# segmenter = ImageSegmenter.create_from_options(segmenter_options)
+
+cap = cv.VideoCapture(CAMERA_IDX)
 if not cap.isOpened():
     print("Cannot open camera")
     exit()
@@ -213,7 +216,8 @@ fps = cap.get(cv.CAP_PROP_FPS)
 
 vcam = pyvirtualcam.Camera(FRAME_WIDTH, FRAME_HEIGHT, fps)
 
-bg_image = get_background_frame()
+bg_image_vulcan = get_background_image(bg_image_path_vulcan)
+bg_image_default = get_background_image(bg_image_path_default)
 
 while True:
     # Capture frame-by-frame
@@ -231,19 +235,23 @@ while True:
     if RUN_MODE:
         landmarker.detect_async(mp_image, frame_timestamp_ms)
         if ENTERPRISE_SCENE:
-            segmented_masks = segmenter.segment_for_video(mp_image, frame_timestamp_ms)
-            category_mask = segmented_masks.category_mask.numpy_view()
-            confidence_masks = segmented_masks.confidence_masks[0].numpy_view()
-            condition = np.stack((confidence_masks,) * 3, axis=-1) > 0.4
-            output_image = np.where(condition, frame, bg_image)
-        else: output_image = frame
+            bg_image = bg_image_vulcan
+        else: 
+            bg_image = bg_image_default
+
+        segmented_masks = segmenter.segment_for_video(mp_image, frame_timestamp_ms)
+        category_mask = segmented_masks.category_mask.numpy_view()
+        confidence_masks = segmented_masks.confidence_masks[0].numpy_view()
+        condition = np.stack((confidence_masks,) * 3, axis=-1) > 0.3
+        output_image = np.where(condition, frame, bg_image)
+        # output_image = np.where(condition, bg_image, frame)
 
         if DEBUG:
             cv.imshow("teste", output_image)
             if cv.waitKey(1) == ord('q'):
                 break
         else:
-            vcam.send(output_image)
+            vcam.send(cv.cvtColor(output_image, cv.COLOR_BGR2RGB))
 
     else:
         result = landmarker.detect_for_video(mp_image, frame_timestamp_ms)
