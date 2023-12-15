@@ -17,6 +17,8 @@ OUTPUT_MODE = 0         # 0-imshow | 1-pyvirtualcam
 SEGMENTER_MODEL = 1     # 0-selfie_segmenter | 1-selfie_segmenter_landscape | 2-multiclass_selfie_segmenter
 DEBUG = False
 
+DEFAULT_BG_IMAGE_BLUR = 0   # 0-background image | 1-background blur
+
 ENTERPRISE_SCENE = False
 ENTERPRISE_SCENE_LAST_CHANGED = None
 
@@ -255,7 +257,7 @@ while True:
         if ENTERPRISE_SCENE:
             bg_image = bg_image_vulcan
         else: 
-            bg_image = bg_image_default
+            bg_image = bg_image_default if DEFAULT_BG_IMAGE_BLUR == 0 else cv.blur(frame, (60,60))
 
         segmented_masks = segmenter.segment_for_video(mp_image, frame_timestamp_ms)
         category_mask = segmented_masks.category_mask.numpy_view()
@@ -267,7 +269,7 @@ while True:
             condition = np.stack((confidence_masks,) * 3, axis=-1) < 0.3
         
         if ENTERPRISE_SCENE:
-            condition, frame = resize_foreground(condition, frame, 0.5, (0.273, 0.33))
+            condition, frame = resize_foreground(condition, frame, 0.5, (0.273, 0.30))
         
         output_image = np.where(condition, frame, bg_image)
 
